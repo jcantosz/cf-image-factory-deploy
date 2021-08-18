@@ -1,0 +1,75 @@
+version: '1.0'
+kind: pipeline
+metadata:
+  name: image factory demo/Deploy
+  project: image factory demos
+  deprecate: {}
+  originalYamlString: |+
+    # More examples of Codefresh YAML can be found at
+    # https://codefresh.io/docs/docs/yaml-examples/examples/
+
+    version: "1.0"
+    # Stages can help you organize your steps in stages
+    stages:
+      - "sync"
+
+    steps:
+      SyncAndWait:
+        title: Sync ArgoCD app and wait
+        type: argocd-sync
+        stage: "sync"
+        arguments:
+          context: ${{ARGO_CONTEXT}}
+          app_name: ${{ARGO_APP}}
+          wait_healthy: true
+          debug: true
+          additional_flags:
+            - '--grpc-web'
+            - --loglevel debug
+spec:
+  triggers:
+    - name: jcantosz/cf-image-factory-deploy
+      type: git
+      repo: jcantosz/cf-image-factory-deploy
+      events:
+        - push.heads
+      pullRequestAllowForkEvents: false
+      commentRegex: /.*/gi
+      branchRegex: /.*/gi
+      branchRegexInput: regex
+      provider: github
+      disabled: false
+      options:
+        noCache: false
+        noCfCache: false
+        resetVolume: false
+      context: github-jesse
+      contexts: []
+      status: verified
+      verified: true
+      endpoint: 'https://g.codefresh.io/api/providers/github/hook/<YOUR HOOK>'
+      secret: <YOUR SECRET>
+ stages:
+    - sync
+  variables:
+    - key: ARGO_CONTEXT
+      value: sales-dev-eks-v2-argo-agent
+      encrypted: false
+    - key: ARGO_APP
+      value: image-factory-demo
+      encrypted: false
+  contexts: []
+  steps:
+    SyncAndWait:
+      title: Sync ArgoCD app and wait
+      type: argocd-sync
+      stage: sync
+      arguments:
+        context: '${{ARGO_CONTEXT}}'
+        app_name: '${{ARGO_APP}}'
+        wait_healthy: true
+        debug: true
+        additional_flags:
+          - '--grpc-web'
+          - '--loglevel debug'
+

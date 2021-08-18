@@ -1,0 +1,203 @@
+version: '1.0'
+kind: pipeline
+metadata:
+  name: image factory demo/Promote Image
+  project: image factory demo
+  deprecate: {}
+  labels:
+    tags: []
+  originalYamlString: |
+    # More examples of Codefresh YAML can be found at
+    # https://codefresh.io/docs/docs/yaml-examples/examples/
+
+    version: "1.0"
+    # Stages can help you organize your steps in stages
+    stages:
+      - "build"
+      - "enrich"
+      - "promote"
+    steps:
+
+      setup:
+          type: parallel
+          stage: "build"
+          steps:
+            ImageFactory:
+              title: Create image on codefresh
+              type: image-factory
+              arguments:
+                IMAGE: '${{EVENT_NAMESPACE}}/${{EVENT_NAME}}:${{EVENT_TAG}}'
+      
+            ExtractInfo:
+              title: extract jira and github info
+              image: 'quay.io/codefreshplugins/alpine:3.8'
+              commands:
+                - cf_export JIRA_TICKET=${EVENT_TAG%_*}
+                - cf_export GIT_BRANCH=${EVENT_TAG#*_}
+
+      enrich:
+        type: parallel
+        stage: "enrich"
+        steps:
+          ExtractJIRAIssue:
+            title: Add Jira issue info to image
+            type: jira-issue-extractor
+            fail_fast: false
+            arguments:
+              IMAGE: '${{EVENT_NAMESPACE}}/${{EVENT_NAME}}:${{EVENT_TAG}}'
+              JIRA_PROJECT_PREFIX: '${{JIRA_PROJECT_PREFIX}}'
+              JIRA_HOST: ${{JIRA_HOST}}
+              MESSAGE: '${{JIRA_TICKET}}'
+              JIRA_CONTEXT: '${{JIRA_CONTEXT}}'
+
+          ExtractPullRequest:
+            title: Add pull request info to image
+            type: image-enricher
+            fail_fast: false
+            stage: build
+            arguments:
+              IMAGE: '${{EVENT_NAMESPACE}}/${{EVENT_NAME}}:${{EVENT_TAG}}'
+              BRANCH: '${{GIT_BRANCH}}'
+              REPO: '${{BUILD_REPO_OWNER}}/${{BUILD_REPO_NAME}}'
+              GIT_PROVIDER_NAME: "${{GIT_CONNECTION}}"
+
+      Clone:
+        title: Clone the deployment repo
+        stage: "promote"
+        type: git-clone
+        repo: 'https://github.com/${{DEPLOY_REPO_OWNER}}/${{DEPLOY_REPO_NAME}}'
+        git: "${{GIT_CONNECTION}}"
+        revision: 'main'
+
+      UpdateRepo:
+        title: 'Update Helm Chart'
+        image: mikefarah/yq:4
+        stage: "promote"
+        working_directory: '${{CF_VOLUME_PATH}}/${{DEPLOY_REPO_NAME}}'
+        commands:
+          - yq e -i '.image.tag="${{EVENT_TAG}}"' "${{HELM_VALUES_PATH}}"
+
+      CommitAndPush:
+        title: "Push promotion"
+        type: git-commit
+        stage: "promote"
+        arguments:
+          repo: "${{DEPLOY_REPO_OWNER}}/${{DEPLOY_REPO_NAME}}"
+          git: "${{GIT_CONNECTION}}"
+          git_user_name: "codefresh"
+          working_directory: '${{CF_VOLUME_PATH}}/${{DEPLOY_REPO_NAME}}'
+          commit_message: "Promote image tag to ${{EVENT_TAG}}"
+          allow_empty: true
+          add:
+            - "${{HELM_VALUES_PATH}}"
+spec:
+  triggers: []
+  stages:
+    - build
+    - enrich
+    - promote
+  variables:
+    - key: GIT_CONNECTION
+      value: github-jesse
+      encrypted: false
+    - key: DEPLOY_REPO_OWNER
+      value: jcantosz
+      encrypted: false
+    - key: DEPLOY_REPO_NAME
+      value: cf-image-factory-deploy
+      encrypted: false
+    - key: HELM_VALUES_PATH
+      value: helm/image-factory-demo/values.yaml
+      encrypted: false
+    - key: BUILD_REPO_OWNER
+      value: jcantosz
+      encrypted: false
+    - key: BUILD_REPO_NAME
+      value: cf-image-factory-build
+      encrypted: false
+    - key: JIRA_HOST
+      value: <company>.jira.com
+      encrypted: false
+    - key: JIRA_PROJECT_PREFIX
+      value: CF
+      encrypted: false
+    - key: JIRA_CONTEXT 
+      value: jira-p
+      encrypted: false
+  debug:
+    steps:
+      image-import:
+        phases:
+          before: true
+          override: false
+          after: true
+  terminationPolicy: []
+  externalResources: []
+  steps:
+    setup:
+      type: parallel
+      stage: build
+      steps:
+        ImageFactory:
+          title: Create image on codefresh
+          type: image-factory
+          arguments:
+            IMAGE: '${{EVENT_NAMESPACE}}/${{EVENT_NAME}}:${{EVENT_TAG}}'
+        ExtractInfo:
+          title: extract jira and github info
+          image: 'quay.io/codefreshplugins/alpine:3.8'
+          commands:
+            - 'cf_export JIRA_TICKET=${EVENT_TAG%_*}'
+            - 'cf_export GIT_BRANCH=${EVENT_TAG#*_}'
+    enrich:
+      type: parallel
+      stage: enrich
+      steps:
+        ExtractJIRAIssue:
+          title: Add Jira issue info to image
+          type: jira-issue-extractor
+          fail_fast: false
+          arguments:
+            IMAGE: '${{EVENT_NAMESPACE}}/${{EVENT_NAME}}:${{EVENT_TAG}}'
+            JIRA_PROJECT_PREFIX: '${{JIRA_PROJECT_PREFIX}}'
+            JIRA_HOST: '${{JIRA_HOST}}'
+            MESSAGE: '${{JIRA_TICKET}}'
+            JIRA_CONTEXT: '${{JIRA_CONTEXT}}'
+        ExtractPullRequest:
+          title: Add pull request info to image
+          type: image-enricher
+          fail_fast: false
+          stage: build
+          arguments:
+            IMAGE: '${{EVENT_NAMESPACE}}/${{EVENT_NAME}}:${{EVENT_TAG}}'
+            BRANCH: '${{GIT_BRANCH}}'
+            REPO: '${{BUILD_REPO_OWNER}}/${{BUILD_REPO_NAME}}'
+            GIT_PROVIDER_NAME: '${{GIT_CONNECTION}}'
+    Clone:
+      title: Clone the deployment repo
+      stage: promote
+      type: git-clone
+      repo: 'https://github.com/${{DEPLOY_REPO_OWNER}}/${{DEPLOY_REPO_NAME}}'
+      git: '${{GIT_CONNECTION}}'
+      revision: main
+    UpdateRepo:
+      title: Update Helm Chart
+      image: 'mikefarah/yq:4'
+      stage: promote
+      working_directory: '${{CF_VOLUME_PATH}}/${{DEPLOY_REPO_NAME}}'
+      commands:
+        - 'yq e -i ''.image.tag="${{EVENT_TAG}}"'' "${{HELM_VALUES_PATH}}"'
+    CommitAndPush:
+      title: Push promotion
+      type: git-commit
+      stage: promote
+      arguments:
+        repo: '${{DEPLOY_REPO_OWNER}}/${{DEPLOY_REPO_NAME}}'
+        git: '${{GIT_CONNECTION}}'
+        git_user_name: codefresh
+        working_directory: '${{CF_VOLUME_PATH}}/${{DEPLOY_REPO_NAME}}'
+        commit_message: 'Promote image tag to ${{EVENT_TAG}}'
+        allow_empty: true
+        add:
+          - '${{HELM_VALUES_PATH}}'
+
