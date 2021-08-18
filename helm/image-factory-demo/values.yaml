@@ -6,7 +6,7 @@ image:
   repository: jcantosz/image-factory-demo
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "SA-250_test"
+  tag: "SA-251_test"
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
